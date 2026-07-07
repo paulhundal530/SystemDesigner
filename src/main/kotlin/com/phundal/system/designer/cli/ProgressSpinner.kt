@@ -4,9 +4,10 @@ import java.io.PrintStream
 
 class ProgressSpinner(
     private val message: String,
-    private val output: PrintStream = System.err
+    private val output: PrintStream = System.err,
 ) {
     private val frames = arrayOf("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+
     @Volatile private var running = false
     private var thread: Thread? = null
     private var startTime = 0L
@@ -14,19 +15,24 @@ class ProgressSpinner(
     fun start() {
         running = true
         startTime = System.currentTimeMillis()
-        thread = Thread({
-            var i = 0
-            while (running) {
-                val elapsed = (System.currentTimeMillis() - startTime) / 1000
-                output.print("\r${frames[i % frames.size]} $message (${elapsed}s)")
-                output.flush()
-                try { Thread.sleep(100) } catch (_: InterruptedException) { break }
-                i++
+        thread =
+            Thread({
+                var i = 0
+                while (running) {
+                    val elapsed = (System.currentTimeMillis() - startTime) / 1000
+                    output.print("\r${frames[i % frames.size]} $message (${elapsed}s)")
+                    output.flush()
+                    try {
+                        Thread.sleep(100)
+                    } catch (_: InterruptedException) {
+                        break
+                    }
+                    i++
+                }
+            }, "progress-spinner").apply {
+                isDaemon = true
+                start()
             }
-        }, "progress-spinner").apply {
-            isDaemon = true
-            start()
-        }
     }
 
     fun stop(finalMessage: String? = null) {

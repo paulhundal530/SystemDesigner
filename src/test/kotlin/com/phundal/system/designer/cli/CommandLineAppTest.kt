@@ -6,7 +6,6 @@ import com.phundal.system.designer.model.SystemDesignTest
 import org.junit.jupiter.api.Test
 
 class CommandLineAppTest {
-
     @Test
     fun `command can be instantiated`() {
         // Verify the command can be created without error
@@ -15,7 +14,7 @@ class CommandLineAppTest {
 }
 
 class FakeDesignGenerator(
-    private val result: GenerationResult = GenerationResult.Success(SystemDesignTest.createSampleDesign())
+    private val result: GenerationResult = GenerationResult.Success(SystemDesignTest.createSampleDesign()),
 ) : DesignGenerator {
     var lastPrompt: String? = null
 

@@ -17,7 +17,7 @@ data class SystemDesign(
     val deepDives: List<DesignSection> = emptyList(),
     val failureModes: List<FailureMode> = emptyList(),
     val tradeoffs: List<Tradeoff> = emptyList(),
-    val glossary: List<GlossaryEntry> = emptyList()
+    val glossary: List<GlossaryEntry> = emptyList(),
 )
 
 @Serializable
@@ -25,7 +25,7 @@ data class Requirements(
     val functional: List<String> = emptyList(),
     val nonFunctional: List<String> = emptyList(),
     val outOfScope: List<String> = emptyList(),
-    val assumptions: List<String> = emptyList()
+    val assumptions: List<String> = emptyList(),
 )
 
 @Serializable
@@ -35,7 +35,7 @@ data class ScaleEstimate(
     val storageGrowth: String? = null,
     val latencyExpectation: String? = null,
     val availabilityTarget: String? = null,
-    val notes: List<String> = emptyList()
+    val notes: List<String> = emptyList(),
 )
 
 @Serializable
@@ -46,7 +46,7 @@ data class ApiContract(
     val description: String,
     val requestExample: String? = null,
     val responseExample: String? = null,
-    val notes: List<String> = emptyList()
+    val notes: List<String> = emptyList(),
 )
 
 @Serializable
@@ -55,14 +55,14 @@ data class DataModel(
     val description: String,
     val fields: List<DataField> = emptyList(),
     val lookupPatterns: List<String> = emptyList(),
-    val lifecycle: String? = null
+    val lifecycle: String? = null,
 )
 
 @Serializable
 data class DataField(
     val name: String,
     val type: String,
-    val description: String
+    val description: String,
 )
 
 @Serializable
@@ -70,12 +70,17 @@ data class Diagram(
     val title: String,
     val type: DiagramType,
     val source: String,
-    val description: String? = null
+    val description: String? = null,
 )
 
 @Serializable
 enum class DiagramType {
-    FLOWCHART, SEQUENCE, STATE, ENTITY_RELATIONSHIP, CLASS, OTHER
+    FLOWCHART,
+    SEQUENCE,
+    STATE,
+    ENTITY_RELATIONSHIP,
+    CLASS,
+    OTHER,
 }
 
 @Serializable
@@ -83,25 +88,25 @@ data class DesignSection(
     val title: String,
     val content: String,
     val subsections: List<DesignSection> = emptyList(),
-    val diagrams: List<Diagram> = emptyList()
+    val diagrams: List<Diagram> = emptyList(),
 )
 
 @Serializable
 data class FailureMode(
     val failure: String,
     val behavior: String,
-    val mitigation: String? = null
+    val mitigation: String? = null,
 )
 
 @Serializable
 data class Tradeoff(
     val decision: String,
     val cost: String,
-    val benefit: String
+    val benefit: String,
 )
 
 @Serializable
 data class GlossaryEntry(
     val term: String,
-    val definition: String
+    val definition: String,
 )

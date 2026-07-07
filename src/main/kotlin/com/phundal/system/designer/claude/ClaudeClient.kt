@@ -6,11 +6,12 @@ package com.phundal.system.designer.claude
  */
 interface ClaudeClient {
     fun isAvailable(): Boolean
+
     fun generate(prompt: String): ClaudeResponse
 }
 
 data class ClaudeResponse(
     val text: String,
     val success: Boolean,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
 )

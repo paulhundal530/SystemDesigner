@@ -4,7 +4,6 @@ import org.junit.jupiter.api.Test
 import kotlin.test.assertNotNull
 
 class ClaudeDiscoveryTest {
-
     @Test
     fun `findClaude returns a path when claude is installed`() {
         // This test verifies discovery works on machines with Claude installed.

@@ -17,12 +17,11 @@ import com.phundal.system.designer.render.MarkdownRenderer
 import kotlin.system.exitProcess
 
 class SystemDesignerCommand(
-    private val generatorOverride: DesignGenerator? = null
+    private val generatorOverride: DesignGenerator? = null,
 ) : CliktCommand(
-    name = "system-designer"
-) {
-    override fun help(context: com.github.ajalt.clikt.core.Context) =
-        "Generate complete system design documents from a short prompt."
+        name = "system-designer",
+    ) {
+    override fun help(context: com.github.ajalt.clikt.core.Context) = "Generate complete system design documents from a short prompt."
 
     private val prompt by argument().optional()
 
@@ -55,14 +54,15 @@ class SystemDesignerCommand(
                 exitProcess(2)
             }
             is GenerationResult.Success -> {
-                val rendered = when (format.lowercase()) {
-                    "html" -> HtmlRenderer().render(result.design)
-                    "markdown", "md" -> MarkdownRenderer().render(result.design)
-                    else -> {
-                        echo("Unknown format '$format'. Use 'markdown' or 'html'.", err = true)
-                        exitProcess(3)
+                val rendered =
+                    when (format.lowercase()) {
+                        "html" -> HtmlRenderer().render(result.design)
+                        "markdown", "md" -> MarkdownRenderer().render(result.design)
+                        else -> {
+                            echo("Unknown format '$format'. Use 'markdown' or 'html'.", err = true)
+                            exitProcess(3)
+                        }
                     }
-                }
 
                 val outputPath = output
                 if (outputPath != null) {

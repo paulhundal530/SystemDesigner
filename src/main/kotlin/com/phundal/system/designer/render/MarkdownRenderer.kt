@@ -1,75 +1,84 @@
 package com.phundal.system.designer.render
 
-import com.phundal.system.designer.model.*
+import com.phundal.system.designer.model.ApiContract
+import com.phundal.system.designer.model.DataModel
+import com.phundal.system.designer.model.DesignSection
+import com.phundal.system.designer.model.Diagram
+import com.phundal.system.designer.model.FailureMode
+import com.phundal.system.designer.model.GlossaryEntry
+import com.phundal.system.designer.model.Requirements
+import com.phundal.system.designer.model.ScaleEstimate
+import com.phundal.system.designer.model.SystemDesign
+import com.phundal.system.designer.model.Tradeoff
 
 class MarkdownRenderer {
-
-    fun render(design: SystemDesign): String = buildString {
-        appendLine("# ${design.title}")
-        appendLine()
-
-        // Section 0: Core Concept
-        appendLine("## The One Concept Everything Hangs On")
-        appendLine()
-        appendLine(design.coreConcept)
-        appendLine()
-
-        // Assumptions
-        if (design.assumptions.isNotEmpty()) {
-            appendLine("**Assumptions:**")
-            design.assumptions.forEach { appendLine("- $it") }
+    fun render(design: SystemDesign): String =
+        buildString {
+            appendLine("# ${design.title}")
             appendLine()
-        }
 
-        // Section 1: Requirements
-        renderRequirements(design.requirements)
-
-        // Section 2: Scale
-        design.scale?.let { renderScale(it) }
-
-        // Section 3: API Contracts
-        if (design.apiContracts.isNotEmpty()) {
-            appendLine("## API Contracts")
+            // Section 0: Core Concept
+            appendLine("## The One Concept Everything Hangs On")
             appendLine()
-            design.apiContracts.forEach { renderApiContract(it) }
-        }
-
-        // Section 4: Data Models
-        if (design.dataModels.isNotEmpty()) {
-            appendLine("## Data Model")
+            appendLine(design.coreConcept)
             appendLine()
-            design.dataModels.forEach { renderDataModel(it) }
-        }
 
-        // Section 5: High-Level Architecture
-        appendLine("## High-Level Architecture")
-        appendLine()
-        // Render top-level diagrams
-        design.diagrams.forEach { renderDiagram(it) }
-        renderSection(design.highLevelArchitecture, level = 3)
+            // Assumptions
+            if (design.assumptions.isNotEmpty()) {
+                appendLine("**Assumptions:**")
+                design.assumptions.forEach { appendLine("- $it") }
+                appendLine()
+            }
 
-        // Section 6: Deep Dives
-        if (design.deepDives.isNotEmpty()) {
-            appendLine("## Deep Dives")
+            // Section 1: Requirements
+            renderRequirements(design.requirements)
+
+            // Section 2: Scale
+            design.scale?.let { renderScale(it) }
+
+            // Section 3: API Contracts
+            if (design.apiContracts.isNotEmpty()) {
+                appendLine("## API Contracts")
+                appendLine()
+                design.apiContracts.forEach { renderApiContract(it) }
+            }
+
+            // Section 4: Data Models
+            if (design.dataModels.isNotEmpty()) {
+                appendLine("## Data Model")
+                appendLine()
+                design.dataModels.forEach { renderDataModel(it) }
+            }
+
+            // Section 5: High-Level Architecture
+            appendLine("## High-Level Architecture")
             appendLine()
-            design.deepDives.forEach { renderSection(it, level = 3) }
-        }
+            // Render top-level diagrams
+            design.diagrams.forEach { renderDiagram(it) }
+            renderSection(design.highLevelArchitecture, level = 3)
 
-        // Section 7: Failure Modes
-        if (design.failureModes.isNotEmpty()) {
-            renderFailureModes(design.failureModes)
-        }
+            // Section 6: Deep Dives
+            if (design.deepDives.isNotEmpty()) {
+                appendLine("## Deep Dives")
+                appendLine()
+                design.deepDives.forEach { renderSection(it, level = 3) }
+            }
 
-        // Section 8: Tradeoffs
-        if (design.tradeoffs.isNotEmpty()) {
-            renderTradeoffs(design.tradeoffs)
-        }
+            // Section 7: Failure Modes
+            if (design.failureModes.isNotEmpty()) {
+                renderFailureModes(design.failureModes)
+            }
 
-        // Section 9: Glossary
-        if (design.glossary.isNotEmpty()) {
-            renderGlossary(design.glossary)
+            // Section 8: Tradeoffs
+            if (design.tradeoffs.isNotEmpty()) {
+                renderTradeoffs(design.tradeoffs)
+            }
+
+            // Section 9: Glossary
+            if (design.glossary.isNotEmpty()) {
+                renderGlossary(design.glossary)
+            }
         }
-    }
 
     private fun StringBuilder.renderRequirements(req: Requirements) {
         appendLine("## Requirements and Scope")
@@ -174,7 +183,10 @@ class MarkdownRenderer {
         appendLine()
     }
 
-    private fun StringBuilder.renderSection(section: DesignSection, level: Int) {
+    private fun StringBuilder.renderSection(
+        section: DesignSection,
+        level: Int,
+    ) {
         val prefix = "#".repeat(level)
         appendLine("$prefix ${section.title}")
         appendLine()

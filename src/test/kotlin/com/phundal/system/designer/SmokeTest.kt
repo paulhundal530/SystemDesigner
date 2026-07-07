@@ -1,17 +1,18 @@
 package com.phundal.system.designer
 
-import com.phundal.system.designer.generation.GenerationResult
+import com.phundal.system.designer.model.SystemDesign
 import com.phundal.system.designer.model.SystemDesignTest
 import com.phundal.system.designer.render.HtmlRenderer
 import com.phundal.system.designer.render.MarkdownRenderer
+import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class SmokeTest {
-
     @Test
     fun `end-to-end smoke test with fake generator produces markdown with all sections`() {
         val design = SystemDesignTest.createSampleDesign()
@@ -44,7 +45,9 @@ class SmokeTest {
     }
 
     @Test
-    fun `export writes file to disk`(@TempDir tempDir: File) {
+    fun `export writes file to disk`(
+        @TempDir tempDir: File,
+    ) {
         val design = SystemDesignTest.createSampleDesign()
         val markdown = MarkdownRenderer().render(design)
 
@@ -60,25 +63,28 @@ class SmokeTest {
     @Test
     fun `design model round-trips through JSON`() {
         val design = SystemDesignTest.createSampleDesign()
-        val json = kotlinx.serialization.json.Json {
-            ignoreUnknownKeys = true
-            prettyPrint = true
-        }
-        val serialized = json.encodeToString(
-            com.phundal.system.designer.model.SystemDesign.serializer(),
-            design
-        )
-        val deserialized = json.decodeFromString(
-            com.phundal.system.designer.model.SystemDesign.serializer(),
-            serialized
-        )
+        val json =
+            Json {
+                ignoreUnknownKeys = true
+                prettyPrint = true
+            }
+        val serialized =
+            json.encodeToString(
+                SystemDesign.serializer(),
+                design,
+            )
+        val deserialized =
+            json.decodeFromString(
+                SystemDesign.serializer(),
+                serialized,
+            )
 
-        kotlin.test.assertEquals(design.title, deserialized.title)
-        kotlin.test.assertEquals(design.coreConcept, deserialized.coreConcept)
-        kotlin.test.assertEquals(design.diagrams.size, deserialized.diagrams.size)
-        kotlin.test.assertEquals(design.deepDives.size, deserialized.deepDives.size)
-        kotlin.test.assertEquals(design.failureModes.size, deserialized.failureModes.size)
-        kotlin.test.assertEquals(design.tradeoffs.size, deserialized.tradeoffs.size)
-        kotlin.test.assertEquals(design.glossary.size, deserialized.glossary.size)
+        assertEquals(design.title, deserialized.title)
+        assertEquals(design.coreConcept, deserialized.coreConcept)
+        assertEquals(design.diagrams.size, deserialized.diagrams.size)
+        assertEquals(design.deepDives.size, deserialized.deepDives.size)
+        assertEquals(design.failureModes.size, deserialized.failureModes.size)
+        assertEquals(design.tradeoffs.size, deserialized.tradeoffs.size)
+        assertEquals(design.glossary.size, deserialized.glossary.size)
     }
 }

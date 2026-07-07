@@ -2,6 +2,7 @@ plugins {
     kotlin("jvm") version "2.1.10"
     kotlin("plugin.serialization") version "2.1.10"
     application
+    id("org.jlleitschuh.gradle.ktlint") version "12.1.2"
 }
 
 group = "com.phundal.system.designer"

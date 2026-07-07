@@ -5,7 +5,6 @@ import kotlin.test.assertContains
 import kotlin.test.assertTrue
 
 class PromptTemplateTest {
-
     @Test
     fun `template includes user prompt`() {
         val result = PromptTemplate.build("Design a chat app")
@@ -35,12 +34,13 @@ class PromptTemplateTest {
     @Test
     fun `template includes all required model fields`() {
         val result = PromptTemplate.build("test")
-        val requiredFields = listOf(
-            "title", "prompt", "assumptions", "coreConcept", "requirements",
-            "scale", "apiContracts", "dataModels", "diagrams",
-            "highLevelArchitecture", "deepDives", "failureModes",
-            "tradeoffs", "glossary"
-        )
+        val requiredFields =
+            listOf(
+                "title", "prompt", "assumptions", "coreConcept", "requirements",
+                "scale", "apiContracts", "dataModels", "diagrams",
+                "highLevelArchitecture", "deepDives", "failureModes",
+                "tradeoffs", "glossary",
+            )
         requiredFields.forEach { field ->
             assertTrue(result.contains("\"$field\""), "Template missing field: $field")
         }

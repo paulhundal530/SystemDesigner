@@ -6,7 +6,6 @@ import kotlin.test.assertContains
 import kotlin.test.assertTrue
 
 class MarkdownRendererTest {
-
     private val renderer = MarkdownRenderer()
     private val design = SystemDesignTest.createSampleDesign()
 
@@ -92,18 +91,19 @@ class MarkdownRendererTest {
     @Test
     fun `rendered markdown has all required sections`() {
         val md = renderer.render(design)
-        val requiredSections = listOf(
-            "The One Concept Everything Hangs On",
-            "Requirements and Scope",
-            "Scale and Constraints",
-            "API Contracts",
-            "Data Model",
-            "High-Level Architecture",
-            "Deep Dives",
-            "Failure Modes",
-            "Tradeoffs",
-            "Glossary"
-        )
+        val requiredSections =
+            listOf(
+                "The One Concept Everything Hangs On",
+                "Requirements and Scope",
+                "Scale and Constraints",
+                "API Contracts",
+                "Data Model",
+                "High-Level Architecture",
+                "Deep Dives",
+                "Failure Modes",
+                "Tradeoffs",
+                "Glossary",
+            )
         requiredSections.forEach { section ->
             assertTrue(md.contains(section), "Missing section: $section")
         }

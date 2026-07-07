@@ -6,7 +6,6 @@ import kotlin.test.assertContains
 import kotlin.test.assertTrue
 
 class HtmlRendererTest {
-
     private val renderer = HtmlRenderer()
     private val design = SystemDesignTest.createSampleDesign()
 
@@ -47,7 +46,7 @@ class HtmlRendererTest {
     fun `rendered html escapes special characters`() {
         val html = renderer.render(design)
         // The content shouldn't have unescaped angle brackets from data
-        assertTrue(html.contains("<h1>"))  // structural HTML is fine
+        assertTrue(html.contains("<h1>")) // structural HTML is fine
     }
 
     @Test

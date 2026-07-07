@@ -4,27 +4,32 @@ import java.util.concurrent.TimeUnit
 
 class LocalClaudeClient(
     private val claudePath: String? = ClaudeDiscovery.findClaude(),
-    private val timeoutSeconds: Long = 300
+    private val timeoutSeconds: Long = 300,
 ) : ClaudeClient {
-
     override fun isAvailable(): Boolean = claudePath != null
 
     override fun generate(prompt: String): ClaudeResponse {
-        val path = claudePath
-            ?: return ClaudeResponse(
-                text = "",
-                success = false,
-                errorMessage = "Claude CLI not found. Install Claude Code or set it on your PATH."
-            )
+        val path =
+            claudePath
+                ?: return ClaudeResponse(
+                    text = "",
+                    success = false,
+                    errorMessage = "Claude CLI not found. Install Claude Code or set it on your PATH.",
+                )
 
         return try {
-            val process = ProcessBuilder(
-                path, "-p", "-",
-                "--output-format", "text",
-                "--max-turns", "1"
-            )
-                .redirectErrorStream(false)
-                .start()
+            val process =
+                ProcessBuilder(
+                    path,
+                    "-p",
+                    "-",
+                    "--output-format",
+                    "text",
+                    "--max-turns",
+                    "1",
+                )
+                    .redirectErrorStream(false)
+                    .start()
 
             // Write prompt via stdin to avoid arg-length limits
             process.outputStream.bufferedWriter().use { it.write(prompt) }
@@ -39,7 +44,7 @@ class LocalClaudeClient(
                 return ClaudeResponse(
                     text = "",
                     success = false,
-                    errorMessage = "Claude timed out after ${timeoutSeconds}s"
+                    errorMessage = "Claude timed out after ${timeoutSeconds}s",
                 )
             }
 
@@ -48,7 +53,7 @@ class LocalClaudeClient(
                 ClaudeResponse(
                     text = "",
                     success = false,
-                    errorMessage = "Claude exited with code $exitCode: ${stderr.take(500)}"
+                    errorMessage = "Claude exited with code $exitCode: ${stderr.take(500)}",
                 )
             } else {
                 ClaudeResponse(text = stdout, success = true)
@@ -57,7 +62,7 @@ class LocalClaudeClient(
             ClaudeResponse(
                 text = "",
                 success = false,
-                errorMessage = "Failed to run Claude: ${e.message}"
+                errorMessage = "Failed to run Claude: ${e.message}",
             )
         }
     }
