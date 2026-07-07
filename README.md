@@ -2,7 +2,7 @@
 
 A CLI tool that generates complete system design documents from a short prompt using Claude. It produces structured, interview-ready answers with architecture diagrams, API contracts, data models, failure modes, and tradeoffs.
 
-**[View example output (Rate Limiter design)](https://htmlpreview.github.io/?https://github.com/paulhundal530/SystemDesigner/blob/main/examples/rate-limiter-design.html)** | [Raw HTML](examples/rate-limiter-design.html)
+**[View example output (Real-Time Chat App design)](https://htmlpreview.github.io/?https://github.com/paulhundal530/SystemDesigner/blob/main/examples/real-time-chat-app-design.html)** | [Raw HTML](examples/real-time-chat-app-design.html)
 
 ## Prerequisites
 
