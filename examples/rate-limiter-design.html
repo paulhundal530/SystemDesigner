@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Real-Time Chat Application</title>
+  <style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background: #f8f9fa; }
+.container { max-width: 900px; margin: 0 auto; padding: 2rem; background: white; min-height: 100vh; }
+h1 { border-bottom: 3px solid #2563eb; padding-bottom: 0.5rem; color: #1e293b; }
+h2 { color: #1e40af; margin-top: 2rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.3rem; }
+h3 { color: #334155; }
+blockquote { background: #eff6ff; border-left: 4px solid #2563eb; padding: 1rem 1.5rem; margin: 1rem 0; border-radius: 0 4px 4px 0; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+th, td { border: 1px solid #e2e8f0; padding: 0.5rem 0.75rem; text-align: left; }
+th { background: #f1f5f9; font-weight: 600; }
+pre { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 6px; overflow-x: auto; }
+code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em; }
+.api-contract { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+.diagram { margin: 1.5rem 0; }
+.mermaid { background: white; padding: 1rem; border-radius: 8px; border: 1px solid #e2e8f0; }
+.core-concept blockquote { font-size: 1.1em; }
+dl { margin: 1rem 0; }
+dt { font-weight: 700; margin-top: 0.5rem; }
+dd { margin-left: 1.5rem; color: #475569; }
+ul { padding-left: 1.5rem; }
+li { margin: 0.25rem 0; }
+section { margin-bottom: 1.5rem; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+  <script>mermaid.initialize({startOnLoad:true});</script>
+</head>
+<body>
+<div class="container">
+<h1>Real-Time Chat Application</h1>
+<section class="core-concept">
+<h2>The One Concept Everything Hangs On</h2>
+<blockquote>A chat application is fundamentally a message routing system. A user sends a message addressed to a conversation (which could be one other person or a group). The system's job is to store that message durably so it is never lost, and then deliver it to every participant as quickly as possible — ideally in real time via a persistent connection, but falling back to a pull-based approach when real-time delivery fails. Everything else — read receipts, presence indicators, push notifications — layers on top of this core store-and-forward loop.</blockquote>
+</section>
+<section>
+<h3>Assumptions</h3>
+<ul>
+<li>This is a consumer-facing chat app similar to WhatsApp or Slack, supporting 1-on-1 and group conversations</li>
+<li>Users authenticate via email/password or OAuth; authentication system itself is out of scope</li>
+<li>The app must support text messages initially; file/image attachments are a later extension</li>
+<li>Target scale is 50 million monthly active users with up to 5 million concurrent connections</li>
+<li>Messages must be delivered in real time (under 500ms end-to-end) when both users are online</li>
+<li>Messages must be stored persistently so users can see history when they come back online</li>
+<li>The system must handle users on unreliable mobile networks gracefully</li>
+</ul>
+</section>
+<section>
+<h2>Requirements and Scope</h2>
+<h3>Functional Requirements</h3>
+<ul>
+<li>Users can send and receive text messages in real time</li>
+<li>Users can create 1-on-1 conversations and group conversations (up to 500 members)</li>
+<li>Messages are persisted and available as scrollable history</li>
+<li>Users see a conversation list sorted by most recent activity</li>
+<li>Messages show delivery status: sent, delivered, read</li>
+<li>Users receive push notifications for messages received while the app is backgrounded</li>
+<li>Users can see which contacts are currently online (presence)</li>
+<li>Messages are delivered in the order they were sent within a conversation</li>
+</ul>
+<h3>Non-Functional Requirements</h3>
+<ul>
+<li>Real-time delivery latency under 500ms p99 for online recipients</li>
+<li>Message durability: zero message loss once the server acknowledges a send</li>
+<li>99.99% availability for message send and receive</li>
+<li>Support 5 million concurrent WebSocket connections</li>
+<li>Message history loads in under 200ms for recent messages</li>
+<li>End-to-end encryption for 1-on-1 conversations</li>
+</ul>
+<h3>Out of Scope</h3>
+<ul>
+<li>Voice and video calling</li>
+<li>File and image attachments (designed for but not built in v1)</li>
+<li>Message search across all conversations</li>
+<li>Administrative moderation tools</li>
+<li>User registration and authentication (assumed to exist)</li>
+</ul>
+</section>
+<section>
+<h2>Scale and Constraints</h2>
+<ul>
+<li><strong>Read/Write Ratio:</strong> 5:1 — Each message is written once but read by 1+ recipients, plus history fetches. Group messages amplify reads.</li>
+<li><strong>Request Rate:</strong> Writes: ~23K messages/sec (50M MAU × 40 msgs/day ÷ 86400 sec, with peak 2× average). Reads: ~115K/sec including real-time pushes and history fetches.</li>
+<li><strong>Storage Growth:</strong> ~1.5 TB/year for message text alone (50M users × 40 msgs × 200 bytes × 365 days). With metadata, indexes, and replication: ~10 TB/year.</li>
+<li><strong>Latency:</strong> p50 &lt; 100ms, p99 &lt; 500ms for message delivery to online recipients. History fetch p99 &lt; 200ms.</li>
+<li><strong>Availability:</strong> 99.99% (about 52 minutes of downtime per year). Messages must never be silently lost.</li>
+</ul>
+</section>
+<section>
+<h2>API Contracts</h2>
+<div class="api-contract">
+<h3>Send Message</h3>
+<code>POST /v1/conversations/{conversationId}/messages</code>
+<p>Sends a text message to a conversation. The server assigns a server-side timestamp and message ID, stores the message, and pushes it to online recipients via their WebSocket connections. Returns immediately after durable storage — delivery to recipients happens asynchronously.</p>
+<h4>Request</h4>
+<pre><code>{
+  &quot;clientMessageId&quot;: &quot;cli_8f14e45f-ceea-367f-a27f-4eb04ef0e7db&quot;,
+  &quot;text&quot;: &quot;Hey, are we still meeting at 3?&quot;,
+  &quot;replyTo&quot;: null
+}</code></pre>
+<h4>Response</h4>
+<pre><code>{
+  &quot;messageId&quot;: &quot;msg_20260706T143022_a7b3c&quot;,
+  &quot;conversationId&quot;: &quot;conv_xk92m&quot;,
+  &quot;clientMessageId&quot;: &quot;cli_8f14e45f-ceea-367f-a27f-4eb04ef0e7db&quot;,
+  &quot;senderId&quot;: &quot;usr_alice&quot;,
+  &quot;text&quot;: &quot;Hey, are we still meeting at 3?&quot;,
+  &quot;sentAt&quot;: &quot;2026-07-06T14:30:22.481Z&quot;,
+  &quot;status&quot;: &quot;sent&quot;
+}</code></pre>
+</div>
+<div class="api-contract">
+<h3>Fetch Message History</h3>
+<code>GET /v1/conversations/{conversationId}/messages?before={cursor}&amp;limit=50</code>
+<p>Returns a page of messages older than the given cursor, sorted newest-first. Used for scrolling back through conversation history. The cursor is an opaque string (typically a server timestamp + message ID) that the client passes from the previous response.</p>
+<h4>Request</h4>
+<pre><code>GET /v1/conversations/conv_xk92m/messages?before=msg_20260706T143022_a7b3c&amp;limit=50</code></pre>
+<h4>Response</h4>
+<pre><code>{
+  &quot;messages&quot;: [
+    {
+      &quot;messageId&quot;: &quot;msg_20260706T142955_d4e2f&quot;,
+      &quot;senderId&quot;: &quot;usr_bob&quot;,
+      &quot;text&quot;: &quot;Sure, conference room B?&quot;,
+      &quot;sentAt&quot;: &quot;2026-07-06T14:29:55.102Z&quot;,
+      &quot;status&quot;: &quot;read&quot;
+    }
+  ],
+  &quot;nextCursor&quot;: &quot;msg_20260706T140012_x8y1z&quot;,
+  &quot;hasMore&quot;: true
+}</code></pre>
+</div>
+<div class="api-contract">
+<h3>Create Conversation</h3>
+<code>POST /v1/conversations</code>
+<p>Creates a new conversation. For 1-on-1 chats, the server checks if a conversation between these two users already exists and returns it instead of creating a duplicate. For groups, a new conversation is always created.</p>
+<h4>Request</h4>
+<pre><code>{
+  &quot;type&quot;: &quot;group&quot;,
+  &quot;name&quot;: &quot;Project Alpha Team&quot;,
+  &quot;memberIds&quot;: [&quot;usr_alice&quot;, &quot;usr_bob&quot;, &quot;usr_carol&quot;]
+}</code></pre>
+<h4>Response</h4>
+<pre><code>{
+  &quot;conversationId&quot;: &quot;conv_new92m&quot;,
+  &quot;type&quot;: &quot;group&quot;,
+  &quot;name&quot;: &quot;Project Alpha Team&quot;,
+  &quot;members&quot;: [
+    {&quot;userId&quot;: &quot;usr_alice&quot;, &quot;role&quot;: &quot;admin&quot;},
+    {&quot;userId&quot;: &quot;usr_bob&quot;, &quot;role&quot;: &quot;member&quot;},
+    {&quot;userId&quot;: &quot;usr_carol&quot;, &quot;role&quot;: &quot;member&quot;}
+  ],
+  &quot;createdAt&quot;: &quot;2026-07-06T14:35:00.000Z&quot;
+}</code></pre>
+</div>
+<div class="api-contract">
+<h3>List Conversations</h3>
+<code>GET /v1/conversations?limit=20&amp;after={cursor}</code>
+<p>Returns the user's conversations sorted by most recent activity. Each entry includes the last message preview and an unread count. This powers the main conversation list screen.</p>
+<h4>Request</h4>
+<pre><code>GET /v1/conversations?limit=20</code></pre>
+<h4>Response</h4>
+<pre><code>{
+  &quot;conversations&quot;: [
+    {
+      &quot;conversationId&quot;: &quot;conv_xk92m&quot;,
+      &quot;type&quot;: &quot;direct&quot;,
+      &quot;name&quot;: null,
+      &quot;otherUser&quot;: {&quot;userId&quot;: &quot;usr_bob&quot;, &quot;displayName&quot;: &quot;Bob&quot;},
+      &quot;lastMessage&quot;: {
+        &quot;text&quot;: &quot;Hey, are we still meeting at 3?&quot;,
+        &quot;sentAt&quot;: &quot;2026-07-06T14:30:22.481Z&quot;,
+        &quot;senderId&quot;: &quot;usr_alice&quot;
+      },
+      &quot;unreadCount&quot;: 0,
+      &quot;updatedAt&quot;: &quot;2026-07-06T14:30:22.481Z&quot;
+    }
+  ],
+  &quot;nextCursor&quot;: &quot;conv_abc123&quot;,
+  &quot;hasMore&quot;: true
+}</code></pre>
+</div>
+<div class="api-contract">
+<h3>WebSocket Connection</h3>
+<code>GET /v1/ws?token={authToken}</code>
+<p>Upgrades to a WebSocket connection for real-time message delivery. Once connected, the server pushes new messages, delivery receipts, read receipts, typing indicators, and presence updates. The client sends typing indicators and read-receipt acknowledgments over this connection.</p>
+<h4>Request</h4>
+<pre><code>WebSocket frames from server:
+{&quot;type&quot;: &quot;message&quot;, &quot;data&quot;: {&quot;conversationId&quot;: &quot;conv_xk92m&quot;, &quot;messageId&quot;: &quot;msg_...&quot;, &quot;senderId&quot;: &quot;usr_alice&quot;, &quot;text&quot;: &quot;Hello!&quot;, &quot;sentAt&quot;: &quot;...&quot;}}
+{&quot;type&quot;: &quot;receipt&quot;, &quot;data&quot;: {&quot;conversationId&quot;: &quot;conv_xk92m&quot;, &quot;messageId&quot;: &quot;msg_...&quot;, &quot;status&quot;: &quot;delivered&quot;, &quot;userId&quot;: &quot;usr_bob&quot;}}
+{&quot;type&quot;: &quot;typing&quot;, &quot;data&quot;: {&quot;conversationId&quot;: &quot;conv_xk92m&quot;, &quot;userId&quot;: &quot;usr_bob&quot;, &quot;isTyping&quot;: true}}</code></pre>
+<h4>Response</h4>
+<pre><code>WebSocket frames from client:
+{&quot;type&quot;: &quot;ack&quot;, &quot;messageId&quot;: &quot;msg_...&quot;}
+{&quot;type&quot;: &quot;read&quot;, &quot;conversationId&quot;: &quot;conv_xk92m&quot;, &quot;upTo&quot;: &quot;msg_...&quot;}
+{&quot;type&quot;: &quot;typing&quot;, &quot;conversationId&quot;: &quot;conv_xk92m&quot;, &quot;isTyping&quot;: true}</code></pre>
+</div>
+<div class="api-contract">
+<h3>Update Read Position</h3>
+<code>POST /v1/conversations/{conversationId}/read</code>
+<p>Marks all messages up to a given message ID as read by the current user. This updates the unread count for the conversation list and triggers read receipts to the message senders.</p>
+<h4>Request</h4>
+<pre><code>{
+  &quot;lastReadMessageId&quot;: &quot;msg_20260706T143022_a7b3c&quot;
+}</code></pre>
+<h4>Response</h4>
+<pre><code>{
+  &quot;conversationId&quot;: &quot;conv_xk92m&quot;,
+  &quot;lastReadMessageId&quot;: &quot;msg_20260706T143022_a7b3c&quot;,
+  &quot;unreadCount&quot;: 0
+}</code></pre>
+</div>
+</section>
+<section>
+<h2>Data Model</h2>
+<div class="data-model">
+<h3>Message</h3>
+<p>A single chat message. This is the most critical entity — it must be stored durably and retrieved efficiently by conversation in chronological order.</p>
+<table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+<tr><td>messageId</td><td><code>string</code></td><td>Globally unique ID, structured as timestamp + random suffix for natural sort order (e.g., msg_20260706T143022_a7b3c)</td></tr>
+<tr><td>conversationId</td><td><code>string</code></td><td>The conversation this message belongs to. Used as the partition key for sharding.</td></tr>
+<tr><td>senderId</td><td><code>string</code></td><td>User ID of the sender</td></tr>
+<tr><td>clientMessageId</td><td><code>string</code></td><td>Client-generated UUID for idempotency deduplication</td></tr>
+<tr><td>text</td><td><code>string</code></td><td>Message body, up to 10,000 characters</td></tr>
+<tr><td>replyTo</td><td><code>string (nullable)</code></td><td>messageId of the message being replied to, if any</td></tr>
+<tr><td>sentAt</td><td><code>timestamp</code></td><td>Server-assigned timestamp at write time, used for ordering</td></tr>
+<tr><td>editedAt</td><td><code>timestamp (nullable)</code></td><td>Set if the message was edited after sending</td></tr>
+<tr><td>deletedAt</td><td><code>timestamp (nullable)</code></td><td>Soft delete timestamp; message body is cleared but the record remains for ordering</td></tr>
+</tbody></table>
+</div>
+<div class="data-model">
+<h3>Conversation</h3>
+<p>Represents a chat thread — either a 1-on-1 conversation between two users, or a named group with multiple members.</p>
+<table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+<tr><td>conversationId</td><td><code>string</code></td><td>Unique identifier for the conversation</td></tr>
+<tr><td>type</td><td><code>enum: direct | group</code></td><td>Whether this is a 1-on-1 or group conversation</td></tr>
+<tr><td>name</td><td><code>string (nullable)</code></td><td>Display name for group conversations; null for direct</td></tr>
+<tr><td>createdBy</td><td><code>string</code></td><td>User ID of the creator</td></tr>
+<tr><td>createdAt</td><td><code>timestamp</code></td><td>When the conversation was created</td></tr>
+<tr><td>lastMessageAt</td><td><code>timestamp</code></td><td>Timestamp of the most recent message, used for sorting the conversation list</td></tr>
+<tr><td>lastMessagePreview</td><td><code>string</code></td><td>Truncated text of the last message for the conversation list display</td></tr>
+</tbody></table>
+</div>
+<div class="data-model">
+<h3>ConversationMember</h3>
+<p>Links a user to a conversation and tracks per-user state like the read position and notification preferences for that conversation.</p>
+<table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+<tr><td>conversationId</td><td><code>string</code></td><td>Foreign key to Conversation</td></tr>
+<tr><td>userId</td><td><code>string</code></td><td>Foreign key to User</td></tr>
+<tr><td>role</td><td><code>enum: admin | member</code></td><td>Admin can add/remove members and change group settings</td></tr>
+<tr><td>lastReadMessageId</td><td><code>string (nullable)</code></td><td>The most recent message this user has read; used to compute unread count</td></tr>
+<tr><td>joinedAt</td><td><code>timestamp</code></td><td>When the user joined this conversation</td></tr>
+<tr><td>mutedUntil</td><td><code>timestamp (nullable)</code></td><td>If set, suppress push notifications until this time</td></tr>
+<tr><td>archived</td><td><code>boolean</code></td><td>If true, hide from this user's conversation list</td></tr>
+</tbody></table>
+</div>
+<div class="data-model">
+<h3>User</h3>
+<p>Core user profile. The chat system stores only the fields it needs; the full user profile lives in the authentication service.</p>
+<table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+<tr><td>userId</td><td><code>string</code></td><td>Unique user identifier, matches the auth system's ID</td></tr>
+<tr><td>displayName</td><td><code>string</code></td><td>Name shown to other users in chat</td></tr>
+<tr><td>avatarUrl</td><td><code>string (nullable)</code></td><td>URL to the user's profile image</td></tr>
+<tr><td>lastSeenAt</td><td><code>timestamp</code></td><td>Last time this user was connected via WebSocket; used for presence</td></tr>
+<tr><td>pushToken</td><td><code>string (nullable)</code></td><td>Device push notification token (APNs or FCM)</td></tr>
+<tr><td>createdAt</td><td><code>timestamp</code></td><td>Account creation time</td></tr>
+</tbody></table>
+</div>
+</section>
+<section>
+<h2>High-Level Architecture</h2>
+<div class="diagram">
+<h3>High-Level Architecture</h3>
+<p>The system has three main server-side components: API servers handle REST requests (send message, fetch history, manage conversations), WebSocket gateways maintain persistent connections for real-time delivery, and background workers process push notifications and analytics. Redis acts as both a cache and a pub/sub bus that connects API servers to WebSocket gateways. Cassandra stores messages (optimized for write-heavy, time-series-like access), while PostgreSQL stores users and conversation metadata (relational queries like 'list my conversations sorted by recent activity').</p>
+<div class="mermaid">
+flowchart LR
+  Client[Mobile / Web Client] --&gt;|WebSocket| LB[Load Balancer]
+  Client --&gt;|HTTPS REST| LB
+  LB --&gt; WS[WebSocket Gateway\nCluster]
+  LB --&gt; API[API Servers]
+  API --&gt; DB[(Message DB\nCassandra)]
+  API --&gt; UserDB[(User &amp; Conversation DB\nPostgreSQL)]
+  API --&gt; Cache[(Redis Cache\n&amp; Pub/Sub)]
+  WS --&gt; Cache
+  API --&gt; MQ[Message Queue\nKafka]
+  MQ --&gt; Notify[Push Notification\nWorker]
+  MQ --&gt; Analytics[Analytics\nPipeline]
+  Notify --&gt; APNS[APNs / FCM]
+</div>
+</div>
+<div class="diagram">
+<h3>Message Send Flow</h3>
+<p>When Alice sends a message: (1) the API server writes it to the message database, (2) acknowledges to Alice with the server-assigned ID and timestamp, (3) publishes a notification to Redis pub/sub on the conversation's channel, (4) the WebSocket gateway subscribed to that channel pushes the message to Bob's open connection, (5) Bob's client acknowledges receipt, which triggers a delivery receipt back to Alice, (6) simultaneously, a notification job is enqueued to Kafka so that if Bob is offline, a push notification is sent via APNs or FCM.</p>
+<div class="mermaid">
+sequenceDiagram
+  participant Alice as Alice's Client
+  participant API as API Server
+  participant DB as Message DB
+  participant Redis as Redis Pub/Sub
+  participant WS as WebSocket Gateway
+  participant Bob as Bob's Client
+  participant Queue as Kafka
+  participant Push as Push Worker
+
+  Alice-&gt;&gt;API: POST /messages (text)
+  API-&gt;&gt;DB: Write message
+  DB--&gt;&gt;API: Ack
+  API--&gt;&gt;Alice: 200 OK (messageId, sentAt)
+  API-&gt;&gt;Redis: PUBLISH conv_xk92m
+  Redis-&gt;&gt;WS: Notification: new message
+  WS-&gt;&gt;Bob: WebSocket frame (message)
+  Bob--&gt;&gt;WS: Ack
+  WS-&gt;&gt;API: Delivery receipt
+  API-&gt;&gt;Redis: PUBLISH receipt
+  Redis-&gt;&gt;WS: Receipt for Alice
+  WS-&gt;&gt;Alice: WebSocket frame (delivered)
+  API-&gt;&gt;Queue: Enqueue notification job
+  Queue-&gt;&gt;Push: If Bob offline
+  Push-&gt;&gt;Bob: Push notification (APNs/FCM)
+</div>
+</div>
+<div class="diagram">
+<h3>Data Partitioning Strategy</h3>
+<p>Messages are partitioned by conversationId in Cassandra, giving each conversation its own sorted timeline. PostgreSQL holds relational data (users, conversations, membership) where JOIN queries are needed. Redis serves three roles: pub/sub channels for real-time fan-out, a session cache mapping users to their WebSocket gateway node, and fast unread count tracking.</p>
+<div class="mermaid">
+flowchart TD
+  subgraph Cassandra Cluster
+    direction TB
+    P1[Partition: conv_001\nMessages sorted by sentAt]
+    P2[Partition: conv_002\nMessages sorted by sentAt]
+    P3[Partition: conv_003\nMessages sorted by sentAt]
+  end
+  subgraph PostgreSQL
+    direction TB
+    U[Users Table]
+    C[Conversations Table]
+    CM[ConversationMembers Table\nIndexed by userId]
+  end
+  subgraph Redis
+    direction TB
+    PS[Pub/Sub Channels\nOne per conversation]
+    SC[Session Cache\nuserId → gateway node]
+    UC[Unread Counts\nuserId:convId → count]
+  end
+</div>
+</div>
+<h3>High-Level Architecture</h3>
+<p>The chat system is built around three server-side layers that separate concerns cleanly:
+
+**1. API Servers (stateless HTTP handlers)**
+These handle all REST API requests: sending messages, creating conversations, fetching history, and updating read positions. They are stateless — any API server can handle any request — which makes horizontal scaling straightforward. When a message is sent, the API server writes it to the message database, publishes a notification to Redis pub/sub, and enqueues a push-notification job to Kafka.
+
+**2. WebSocket Gateway (stateful connection holders)**
+These servers maintain long-lived WebSocket connections with clients. Each gateway server subscribes to Redis pub/sub channels for all conversations that its connected users belong to. When a notification arrives on a channel, the gateway forwards the message to the appropriate WebSocket connection. The gateway cluster is the most operationally complex component because it holds state (the connections themselves). A session registry in Redis maps each online userId to the gateway node holding their connection, so API servers know which pub/sub channel to notify.
+
+**3. Background Workers**
+Kafka consumers that handle push notifications (for offline users), analytics event processing, and any heavy async work like media processing (future). These are fully decoupled from the request path.
+
+**Request Flow for Sending a Message:**
+1. Client sends POST /v1/conversations/{id}/messages to an API server via the load balancer.
+2. API server validates the request and checks conversation membership.
+3. API server writes the message to Cassandra (message store) and updates lastMessageAt in PostgreSQL.
+4. API server returns 200 with the message ID and server timestamp to the sender.
+5. API server publishes the message to the Redis pub/sub channel for that conversation.
+6. Every WebSocket gateway subscribed to that channel receives the notification.
+7. Each gateway checks which of its connected users are members of that conversation and pushes the message over their WebSocket.
+8. For members who are NOT online (no active WebSocket), the API server enqueues a push notification job to Kafka.
+9. A push notification worker dequeues the job and sends it via APNs (Apple) or FCM (Google).
+
+**Why two databases?**
+Messages and conversations have fundamentally different access patterns. Messages are append-heavy (write a lot, read sequentially within a conversation) — Cassandra excels at this because its partition-key design gives each conversation a sorted log of messages. Conversations and memberships require relational queries (list my conversations with unread counts, check membership) — PostgreSQL handles these well with indexes and JOINs.
+
+**Why Redis sits in the middle?**
+Redis pub/sub provides the glue between stateless API servers and stateful WebSocket gateways. When an API server writes a message, it does not need to know which gateway holds the recipient's connection. It just publishes to the conversation's channel, and the right gateway picks it up. This decoupling means API servers and gateways scale independently.</p>
+</section>
+<section>
+<h2>Deep Dives</h2>
+<h3>Real-Time Message Delivery via WebSocket</h3>
+<p>**What problem is this solving?**
+Users expect chat messages to appear instantly — within a fraction of a second — without refreshing or polling. HTTP polling would either waste bandwidth (polling every second) or introduce visible delay (polling every 10 seconds). We need a persistent, bidirectional channel between client and server.
+
+**Simplest version:**
+Each client opens a WebSocket connection to a gateway server. The gateway maintains an in-memory map of userId → WebSocket connection. When a message arrives for a conversation, the gateway looks up all online members and pushes the message frame directly.
+
+**What breaks at scale?**
+With 5 million concurrent connections, a single gateway server cannot hold them all (each connection uses ~20 KB of memory, so 5M connections = 100 GB). We need a cluster of gateway servers. But now the problem is: when API Server A wants to deliver a message to user Bob, how does it know which gateway server holds Bob's connection?
+
+**What do we choose?**
+We use Redis pub/sub as the coordination layer. Each gateway server subscribes to pub/sub channels for every conversation its connected users belong to. When a user connects, the gateway subscribes to all their conversation channels. When a message is sent, the API server publishes to the conversation's channel, and only the gateway(s) with relevant users receive it.
+
+Additionally, we maintain a session registry in Redis: a simple key-value map of userId → gatewayNodeId. This is used for targeted delivery (e.g., typing indicators to a specific user) without broadcasting.
+
+**Connection lifecycle:**
+1. Client connects to /v1/ws with an auth token.
+2. Load balancer routes the connection to a gateway (using sticky sessions by userId hash).
+3. Gateway authenticates the token, registers the connection in Redis, and subscribes to all conversation channels for this user.
+4. Gateway sends a heartbeat ping every 30 seconds. If no pong within 10 seconds, the connection is closed and the Redis session entry is removed.
+5. On disconnect, the gateway unsubscribes from channels and removes the session entry.
+
+**What tradeoff are we accepting?**
+Redis pub/sub is fire-and-forget — if a gateway misses a message (e.g., during a brief network partition between gateway and Redis), the message is not re-delivered via pub/sub. This is acceptable because the message IS durably stored in Cassandra. When a client reconnects, it fetches missed messages via the REST API using its last-known messageId as a cursor. Real-time delivery is best-effort; persistence is guaranteed.</p>
+<h3>Message Storage and Partitioning in Cassandra</h3>
+<p>**What problem is this solving?**
+We need to store billions of messages and retrieve them efficiently per conversation, sorted by time, with fast writes and fast range reads.
+
+**Simplest version:**
+A single PostgreSQL table with (conversationId, sentAt, messageId, text, senderId). Index on (conversationId, sentAt DESC). This works at small scale.
+
+**What breaks at scale?**
+At 23K writes/sec and growing storage, a single relational database becomes a bottleneck. Sharding PostgreSQL by conversationId is possible but operationally complex. More importantly, the access pattern — append-only writes followed by sequential reads within a partition — is exactly what wide-column stores like Cassandra are designed for.
+
+**What do we choose?**
+Apache Cassandra with this table design:
+
+```
+Primary key: (conversationId, sentAt, messageId)
+Partition key: conversationId
+Clustering columns: sentAt DESC, messageId DESC
+```
+
+This means all messages for a conversation are stored together on the same set of nodes, sorted by timestamp. Fetching the latest 50 messages is a single partition read with a LIMIT clause — extremely fast.
+
+**Partition sizing concern:**
+A very active conversation (e.g., a group with years of history) could grow its partition to hundreds of MB. Cassandra partitions should ideally stay under 100 MB. Solution: use a compound partition key of (conversationId, timeBucket) where timeBucket is a monthly bucket like '2026-07'. When fetching history, the API server queries the current bucket first, and only reads older buckets if the user scrolls further back. Most queries never go past the current bucket.
+
+**Write path:**
+Writes use consistency level LOCAL_QUORUM (at least 2 of 3 replicas in the local datacenter must acknowledge). This ensures the message is durable before we ack to the client. Cassandra's log-structured storage makes writes very fast — typically under 5ms.
+
+**What tradeoff are we accepting?**
+Cassandra does not support ad-hoc queries well (no full-text search, no JOINs). We accept this because messages have a narrow access pattern. If we need message search later, we will build a separate search index (Elasticsearch) fed by a Kafka consumer — not by querying Cassandra with WHERE text LIKE '%...'.</p>
+<h3>Presence and Typing Indicators</h3>
+<p>**What problem is this solving?**
+Users want to know if the person they're chatting with is online (presence) and whether they're currently typing. These are ephemeral signals — they don't need to be stored persistently, but they need to be delivered quickly.
+
+**Simplest version:**
+Presence: When a user's WebSocket connects, mark them as 'online' in Redis with a TTL of 60 seconds. The gateway refreshes this key every 30 seconds (on each heartbeat). When the key expires, the user is considered offline. To check if someone is online, just look up their key in Redis.
+
+Typing: When a user starts typing, their client sends a {type: 'typing', isTyping: true} frame over the WebSocket. The gateway publishes a typing event to the Redis pub/sub channel for that conversation. Other gateways push it to online members. Typing events have a short TTL on the client side (3 seconds) — if no new typing event arrives, the 'typing' indicator disappears.
+
+**What breaks at scale?**
+Presence at scale is expensive if you try to track it precisely. If 5 million users are online and each user has 100 contacts, broadcasting 'user X went offline' to 100 people on every disconnect creates a storm of updates. This is the classic presence fan-out problem.
+
+**What do we choose?**
+Lazy presence: Don't broadcast presence changes proactively. Instead, when a user opens a conversation, their client queries the presence status of the other participants via a REST endpoint (GET /v1/users/{id}/presence). The response comes from Redis (a simple key lookup, very fast). The WebSocket gateway sends presence updates only for users in conversations that the current user has open — not for their entire contact list.
+
+For typing indicators, the scope is already narrow (only sent within a conversation while it's being viewed), so the pub/sub approach works without modification.
+
+**What tradeoff are we accepting?**
+Presence status may be stale by up to 60 seconds (the TTL window). A user who closed the app might still appear 'online' briefly. This is acceptable — all major chat apps have this same behavior, and users understand that presence is approximate.</p>
+<h3>Push Notifications for Offline Users</h3>
+<p>**What problem is this solving?**
+When a recipient is not connected via WebSocket, they need to be notified about new messages via mobile push notifications (APNs for iOS, FCM for Android). This must be reliable but cannot block the message-send path.
+
+**Simplest version:**
+After writing a message, the API server checks Redis for the recipient's session entry. If no active session exists, it enqueues a push notification job to Kafka with the message preview and the recipient's userId.
+
+A push notification worker consumes from Kafka, looks up the user's push token from PostgreSQL (or a Redis cache), and calls the APNs/FCM API to deliver the notification.
+
+**What breaks at scale?**
+Group messages create amplification: a message to a 200-person group generates up to 200 push notification checks. If 150 of those users are offline, that's 150 push API calls. At 23K messages/sec with group amplification, the push worker cluster must handle hundreds of thousands of push calls per second.
+
+**What do we choose?**
+Batch and throttle push notifications:
+1. **Batching:** Group multiple notifications for the same user within a short window (2 seconds) into a single push. If Alice receives 5 messages in 2 seconds, she gets one push saying '5 new messages' rather than 5 separate pushes.
+2. **Suppression:** Don't send a push if the user's WebSocket connection is active (they'll get the message in real time). Don't send a push if the user has the conversation muted.
+3. **Rate limiting:** Cap push notifications at 1 per conversation per 30 seconds per user to avoid spamming.
+4. **Separate Kafka partitions:** Partition the notification topic by userId so all notifications for a single user go to the same consumer, enabling the batching logic.
+
+**What tradeoff are we accepting?**
+The 2-second batching window means push notifications are slightly delayed compared to real-time WebSocket delivery. This is imperceptible to users and dramatically reduces push API costs and device battery drain.</p>
+<h3>Conversation List and Unread Counts</h3>
+<p>**What problem is this solving?**
+The conversation list is the most-viewed screen in any chat app. It must load fast, show conversations sorted by recent activity, and display accurate unread counts. This is a read-heavy access pattern that touches multiple tables.
+
+**Simplest version:**
+Query PostgreSQL: SELECT conversations with their lastMessageAt and lastMessagePreview, JOIN with ConversationMembers to filter by the current user, compute unread count by comparing the user's lastReadMessageId with the conversation's most recent message. Sort by lastMessageAt DESC.
+
+**What breaks at scale?**
+Computing unread counts on every list load requires comparing timestamps or counting messages per conversation. If a user belongs to 200 conversations, this becomes expensive at request time. The conversation list is also the first thing users see when they open the app — it must load in under 100ms.
+
+**What do we choose?**
+Maintain pre-computed unread counts in Redis:
+- Key: `unread:{userId}:{conversationId}` → integer count
+- When a new message arrives in a conversation, increment the unread counter for every member except the sender.
+- When a user reads a conversation (POST /conversations/{id}/read), reset their counter to 0.
+- When loading the conversation list, fetch conversation metadata from PostgreSQL (or a cache) and unread counts from Redis in a single MGET call.
+
+This turns the expensive per-request computation into cheap increment/reset operations that happen at write time.
+
+**Why not compute from message data?**
+Counting messages in Cassandra between two timestamps is a full-partition scan — expensive and slow. Pre-computing in Redis trades a small amount of write-path complexity for dramatically faster reads.
+
+**What tradeoff are we accepting?**
+The Redis unread count could drift if a Redis write fails (e.g., during a brief network issue). We mitigate this with a periodic reconciliation job that recalculates counts from the source of truth (Cassandra + PostgreSQL) and corrects any drift. A slightly wrong unread count for a few minutes is acceptable; losing messages is not.</p>
+<h3>End-to-End Encryption for Direct Messages</h3>
+<p>**What problem is this solving?**
+Users expect that their private 1-on-1 conversations cannot be read by the chat service operator or anyone who gains access to the server-side database. End-to-end encryption (E2EE) means only the sender and recipient can decrypt messages — the server sees only ciphertext.
+
+**Simplest version:**
+Use the Signal Protocol (the same protocol used by Signal, WhatsApp, and Google Messages). Each user generates a long-term identity key pair and a set of one-time pre-keys on their device. These public keys are uploaded to the server. When Alice wants to message Bob for the first time, she fetches Bob's public pre-keys from the server and uses them to establish a shared session. All subsequent messages are encrypted with session keys derived from this exchange.
+
+**Key concepts (plain English):**
+- **Identity key:** A permanent public/private key pair tied to a user's device. The private key never leaves the device.
+- **Pre-keys:** Temporary public keys uploaded to the server. They allow someone to start an encrypted session even if the recipient is offline.
+- **Double Ratchet:** An algorithm that generates a new encryption key for every single message. Even if one key is compromised, past and future messages remain secure. This property is called 'forward secrecy.'
+
+**What breaks at scale?**
+E2EE for group messages is much harder. The Signal Protocol works for 1-on-1 easily, but for a group of N people, naive pairwise encryption means each message must be encrypted N times. The Sender Keys extension allows a sender to share a symmetric key with all group members, so they encrypt only once — but this weakens forward secrecy because a compromised sender key decrypts all messages until the key is rotated.
+
+**What do we choose?**
+Implement E2EE for 1-on-1 conversations in v1 using the Signal Protocol (via the open-source libsignal library). Group E2EE is deferred to v2, where we'll evaluate the MLS (Messaging Layer Security) standard, which is designed for efficient group encryption.
+
+**What tradeoff are we accepting?**
+With E2EE, the server cannot index or search message content. Features like server-side search, link previews generated server-side, and spam detection become impossible for encrypted conversations. These features must either work client-side or be limited to unencrypted group conversations.</p>
+</section>
+<section>
+<h2>Failure Modes</h2>
+<table><thead><tr><th>Failure</th><th>Behavior</th><th>Mitigation</th></tr></thead><tbody>
+<tr><td>Message database (Cassandra) unavailable</td><td>New messages cannot be persisted. The API server returns 503 Service Unavailable for send requests. Read requests for recent messages fail; the client shows cached messages from its local store. No messages are silently dropped — the client knows the send failed and can retry.</td><td>Cassandra runs with replication factor 3 across availability zones. A single node failure is transparent. Full cluster outage is mitigated by multi-region deployment with automatic failover. Recovery point: zero data loss because writes require LOCAL_QUORUM acknowledgment.</td></tr>
+<tr><td>WebSocket gateway node crashes</td><td>All users connected to that node are disconnected. Their clients detect the broken connection within 10 seconds (missed heartbeat) and automatically reconnect to another gateway node via the load balancer. During reconnection, messages are still being stored in the database by API servers — the client fetches missed messages upon reconnecting via the REST API.</td><td>The gateway cluster runs at least 3 nodes per availability zone. The load balancer health-checks each node and stops routing new connections to unhealthy nodes. Redis session entries for disconnected users expire after 60 seconds, so presence automatically corrects.</td></tr>
+<tr><td>Redis pub/sub failure</td><td>Real-time message delivery stops working — messages are written to the database but not pushed to WebSocket connections. Users do not see new messages until they pull (manually refresh or background poll). Push notifications still work because they go through Kafka, not Redis.</td><td>Redis Cluster with automatic failover (Redis Sentinel or managed Redis like ElastiCache). If a Redis primary fails, a replica is promoted within seconds. During the failover window, a client-side polling fallback kicks in: the WebSocket gateway periodically checks for messages the client has not yet received.</td></tr>
+<tr><td>Kafka consumer lag (push notifications delayed)</td><td>Offline users receive push notifications late — minutes instead of seconds. Messages are not lost; they are waiting in the Kafka topic. Once consumers catch up, all pending notifications are delivered (with batching to avoid spamming).</td><td>Auto-scaling consumer groups: if lag exceeds a threshold, Kubernetes spins up additional consumer pods. Alert on consumer lag &gt; 30 seconds. Kafka topic retention is set to 72 hours, providing ample buffer for recovery.</td></tr>
+<tr><td>Client sends duplicate message (network retry)</td><td>The client retries a message send after a timeout. The API server checks the clientMessageId against recently stored messages for the conversation. If a match is found, it returns the existing message with its server-assigned ID instead of creating a duplicate. The user sees only one message.</td><td>Idempotency is enforced at the API layer using the client-generated clientMessageId. A secondary index on (conversationId, clientMessageId) in Cassandra makes the dedup check fast. The dedup window is 24 hours — long enough to cover any realistic retry scenario.</td></tr>
+<tr><td>User database (PostgreSQL) unavailable</td><td>Conversation list and membership queries fail. Sending messages to existing conversations still works (membership can be cached in Redis for the short term). Creating new conversations fails. User profile lookups fall back to a Redis cache (stale but functional).</td><td>PostgreSQL runs as a primary with synchronous replicas in two availability zones. Automatic failover promotes a replica within 30 seconds. Read replicas serve read traffic during the failover window.</td></tr>
+<tr><td>Unread count drift in Redis</td><td>A user's unread count for a conversation is slightly wrong — showing 3 instead of 4, or 1 instead of 0. The conversation list may display an inaccurate badge count. No messages are lost; only the counter is wrong.</td><td>A reconciliation job runs every 5 minutes, recalculating unread counts from the source of truth (the user's lastReadMessageId vs. messages in Cassandra) and correcting Redis. When a user opens a conversation, the count is also recalculated on the fly.</td></tr>
+</tbody></table>
+</section>
+<section>
+<h2>Tradeoffs</h2>
+<table><thead><tr><th>Decision</th><th>Cost</th><th>Benefit</th></tr></thead><tbody>
+<tr><td>Use Cassandra for messages and PostgreSQL for users/conversations (polyglot persistence)</td><td>Operational complexity of running two database systems. Engineers must understand two query languages and two consistency models. Cross-store queries (e.g., 'messages from user X') require application-level joins.</td><td>Each database is used for what it does best. Cassandra handles high-throughput, append-only message writes with partition-based reads. PostgreSQL handles relational membership queries and transactional updates. Neither is forced into an access pattern it's bad at.</td></tr>
+<tr><td>Redis pub/sub for real-time delivery instead of direct gateway-to-gateway communication</td><td>Redis pub/sub is fire-and-forget — no delivery guarantee. If a message is published while a gateway is briefly disconnected from Redis, that message is not re-delivered via pub/sub. Adds a dependency on Redis availability for real-time features.</td><td>Complete decoupling between API servers and WebSocket gateways. Neither needs to know the other's topology. Adding or removing gateway nodes requires zero configuration changes. Massively simplifies horizontal scaling.</td></tr>
+<tr><td>Pre-computed unread counts in Redis instead of counting at read time</td><td>Counts can drift if Redis writes fail. Requires a reconciliation job. Slightly more write-path complexity (increment counter on every message, reset on read).</td><td>Conversation list loads in under 50ms instead of hundreds of milliseconds. The conversation list is the single most frequently loaded screen — optimizing it has outsized impact on perceived performance.</td></tr>
+<tr><td>Lazy presence (query on demand) instead of proactive presence broadcasting</td><td>Presence status can be stale by up to 60 seconds. Users may see someone as 'online' briefly after they've actually closed the app.</td><td>Eliminates the presence fan-out storm. Broadcasting 'user X went offline' to 200 contacts of every disconnecting user would create unsustainable event volume at 5M concurrent users. Lazy presence scales linearly with active conversations, not with contact list size.</td></tr>
+<tr><td>End-to-end encryption for 1-on-1 only (not groups in v1)</td><td>Group conversations are not encrypted in v1, which may be a concern for privacy-focused users. Requires communicating this limitation clearly.</td><td>Dramatically simpler implementation. 1-on-1 E2EE with Signal Protocol is well-understood and well-tested. Group E2EE (MLS) is still maturing as a standard. Shipping 1-on-1 E2EE quickly gives users real privacy protection where it matters most.</td></tr>
+<tr><td>Kafka for async push notification processing instead of synchronous push from the API server</td><td>Push notifications are delayed by 1-3 seconds compared to real-time delivery. Adds Kafka as an infrastructure dependency.</td><td>The message-send API response time is not affected by slow push provider APIs (APNs can take 200-500ms). Push notification failures don't affect message delivery. Enables batching (reducing push spam) and rate limiting. Push workers scale independently from API servers.</td></tr>
+<tr><td>Time-bucketed Cassandra partition keys (conversationId + monthBucket)</td><td>Queries that cross month boundaries require reading from two partitions. Client-side logic must handle the bucket boundary. Slightly more complex query code.</td><td>Prevents any single partition from growing unboundedly large. A very active group chat that has been running for years won't degrade in read performance because each month's messages are in a separate, reasonably-sized partition.</td></tr>
+<tr><td>WebSocket heartbeat with 30-second interval</td><td>A crashed client may appear 'online' for up to 40 seconds (30s heartbeat + 10s timeout) before being detected as disconnected. Minor network overhead from heartbeat pings.</td><td>Reliable detection of dead connections without relying on TCP keepalive (which varies by OS and is often set to 2+ hours). 30 seconds strikes a balance between quick detection and low overhead — shorter intervals would significantly increase per-connection bandwidth usage at 5M connections.</td></tr>
+</tbody></table>
+</section>
+<section>
+<h2>Glossary</h2>
+<dl>
+<dt>WebSocket</dt>
+<dd>A communication protocol that provides a persistent, bidirectional channel between a client and server over a single TCP connection. Unlike HTTP (where the client must ask for data each time), a WebSocket lets the server push data to the client at any time, enabling real-time features like instant message delivery.</dd>
+<dt>Pub/Sub (Publish/Subscribe)</dt>
+<dd>A messaging pattern where senders (publishers) broadcast messages to a channel without knowing who will receive them, and receivers (subscribers) listen to channels they care about without knowing who sends to them. Redis pub/sub is used here so that API servers can publish 'new message' events without knowing which WebSocket gateway holds the recipient's connection.</dd>
+<dt>Cassandra</dt>
+<dd>An open-source distributed database designed for handling large amounts of write-heavy data across many servers. Data is organized into partitions (groups of rows stored together), and each partition is replicated across multiple nodes for durability. It's ideal for chat messages because it writes fast and reads efficiently within a partition.</dd>
+<dt>Partition Key</dt>
+<dd>In Cassandra, the field(s) that determine which node stores a particular row of data. All rows with the same partition key are stored together on the same set of nodes, which makes reading them very fast. In this design, conversationId is the partition key for messages, so all messages in a conversation are co-located.</dd>
+<dt>LOCAL_QUORUM</dt>
+<dd>A Cassandra consistency level that requires a majority of replicas in the local datacenter to acknowledge a write before returning success to the client. With a replication factor of 3, this means 2 out of 3 replicas must confirm the write. This provides strong durability without the latency cost of waiting for acknowledgments from remote datacenters.</dd>
+<dt>Kafka</dt>
+<dd>A distributed event streaming platform used as a message queue. Producers write messages (events) to topics, and consumers read from those topics. Messages are stored durably and can be replayed. In this design, Kafka decouples the message-send path from push notification delivery, allowing each to scale independently.</dd>
+<dt>APNs (Apple Push Notification service)</dt>
+<dd>Apple's cloud service for sending push notifications to iOS and macOS devices. The chat server sends a notification payload to APNs, which routes it to the user's device even when the chat app is not actively running.</dd>
+<dt>FCM (Firebase Cloud Messaging)</dt>
+<dd>Google's cloud service for sending push notifications to Android devices (and optionally iOS and web). Similar to APNs but for the Android ecosystem.</dd>
+<dt>Signal Protocol</dt>
+<dd>An encryption protocol that provides end-to-end encryption for messaging. It uses a combination of long-term identity keys and ephemeral session keys to ensure that only the sender and recipient can read messages. The protocol also provides 'forward secrecy,' meaning that if a key is compromised, past messages remain secure.</dd>
+<dt>Double Ratchet</dt>
+<dd>A key management algorithm used in the Signal Protocol that generates a new unique encryption key for every single message. It's called a 'ratchet' because it only moves forward — you can derive future keys from current ones, but not past keys. This ensures that compromising one message's key doesn't reveal any other messages.</dd>
+<dt>Forward Secrecy</dt>
+<dd>A property of an encryption system where compromising a current key does not allow decryption of past messages. Each message is encrypted with a different key, and old keys are deleted after use. Even if an attacker obtains your current key, they cannot read your message history.</dd>
+<dt>Idempotency</dt>
+<dd>The property of an operation where performing it multiple times has the same effect as performing it once. In this design, sending a message with the same clientMessageId twice results in only one stored message. This protects against duplicate messages when clients retry after network timeouts.</dd>
+<dt>Fan-out</dt>
+<dd>The process of distributing a single event to multiple recipients. When a message is sent to a group conversation with 100 members, it must be 'fanned out' to up to 100 WebSocket connections and potentially 100 push notification calls. Fan-out is one of the primary scaling challenges in chat systems.</dd>
+<dt>Sticky Session</dt>
+<dd>A load balancing strategy where requests from the same client are always routed to the same server. For WebSocket connections, the load balancer uses a hash of the userId to ensure a user's connection always goes to the same gateway node, simplifying session management.</dd>
+<dt>MLS (Messaging Layer Security)</dt>
+<dd>An emerging IETF standard for efficient group end-to-end encryption. Unlike encrypting a message separately for each group member (which is expensive for large groups), MLS uses a tree-based key structure that allows efficient key updates as members join or leave. It's the likely successor to current group E2EE approaches.</dd>
+<dt>Polyglot Persistence</dt>
+<dd>An architecture pattern where different types of data are stored in different database systems, each chosen for its strengths. In this design, messages go to Cassandra (optimized for write-heavy, time-series data) while users and conversations go to PostgreSQL (optimized for relational queries and transactions).</dd>
+</dl>
+</section>
+</div>
+</body>
+</html>
